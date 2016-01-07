@@ -1,6 +1,6 @@
 /*
- * C Template: template expander library based on the perl
- * HTML::Template package.
+ * C thetemplate: thetemplate expander library based on the perl
+ * HTML::thetemplate package.
  *
  * Version: 1.0
  *
@@ -9,7 +9,7 @@
  * Copyright 2009 Stephen C. Losen.  Distributed under the terms
  * of the GNU General Public License (GPL)
  *
- * A template consists of text sequences, comments and template tags.
+ * A thetemplate consists of text sequences, comments and thetemplate tags.
  * Anything that is not a tag and not a comment is considered text.
  * The tags include:
  *
@@ -29,12 +29,12 @@
  *
  * A comment is any text enclosed by <* and *>
  *
- * We read the entire template into memory, scan it, parse it, and
+ * We read the entire thetemplate into memory, scan it, parse it, and
  * build a parse tree.  To generate the output, we walk the parse
  * tree and output the tree nodes.  A list of variables and values
  * determines what tree nodes we visit and what we output.
  *
- * The scanner splits the template into text sequences and tags.
+ * The scanner splits the thetemplate into text sequences and tags.
  * Each call of scan() returns a tagnode struct representing the
  * next text sequence or tag.  The parser uses recursive descent
  * to link the tagnodes into a parse tree.
@@ -43,17 +43,19 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdlib.h>
-#include <unistd.h>
+//#include <unistd.h>
 #include <stdio.h>
 #include <sys/stat.h>
 #include <stdarg.h>
-#include <ctemplate.h>
+//#include <io.h>
+//#include <ctemplate.h>
+#include "ctemplate.h"
 
 /* To prevent infinite TMPL_INCLUDE cycles, we limit the depth */
 
 #define MAX_INCLUDE_DEPTH 30
 
-/* template tag kinds (used in bitmaps) */
+/* thetemplate tag kinds (used in bitmaps) */
 
 typedef enum {
     tag_text    = 0x001,   /* text sequence */
@@ -70,7 +72,7 @@ typedef enum {
 } tag_kind;
 
 typedef struct tagnode tagnode;
-typedef struct template template;
+typedef struct thetemplate thetemplate;
 
 /* The parse tree consists of tagnodes */
 
@@ -122,19 +124,19 @@ struct tagnode {
 
         struct {
             const char *filename;
-            template *tmpl;
+            thetemplate *tmpl;
         }
         include;
     }
     tag;
 };
 
-/* template information */
+/* thetemplate information */
 
-struct template {
-    const char *filename;  /* name of template file */
-    const char *tmplstr;   /* contents of template file */
-    FILE *out;             /* template output file pointer */
+struct thetemplate {
+    const char *filename;  /* name of thetemplate file */
+    const char *tmplstr;   /* contents of thetemplate file */
+    FILE *out;             /* thetemplate output file pointer */
     FILE *errout;          /* error output file pointer */
     tagnode *roottag;      /* root of parse tree */
     const TMPL_fmtlist
@@ -145,7 +147,7 @@ struct template {
     const char *scanptr;  /* next character to be scanned */
     tagnode *nexttag;     /* next tag to be returned by scanner */
     tagnode *curtag;      /* current tagnode being parsed */
-    int linenum;          /* current template line number */
+    int linenum;          /* current thetemplate line number */
     int tagline;          /* line number of current tag's name */
     int error;            /* error indicator */
     int include_depth;    /* avoids TMPL_INCLUDE cycles */
@@ -157,7 +159,7 @@ struct template {
 
 /*
  * TMPL_fmtlist is a list of format functions, which are passed to
- * a template.  A TMPL_VAR tag can specify a format function for
+ * a thetemplate.  A TMPL_VAR tag can specify a format function for
  * outputting the variable with the fmt="fmtname" attribute.
  */
 
@@ -168,7 +170,7 @@ struct TMPL_fmtlist {
 };
 
 /*
- * variables are passed to a template in a tree consisting of
+ * variables are passed to a thetemplate in a tree consisting of
  * TMPL_var, TMPL_varlist and TMPL_loop nodes.
  *
  * TMPL_var is a simple variable (name and value)
@@ -206,63 +208,88 @@ struct TMPL_loop {
 
 /* mymalloc() is a malloc wrapper that exits on failure */
 
-static void *
-mymalloc(size_t size) {
+static void * mymalloc(size_t size) {
     void *ret = malloc(size);
     if (ret == 0) {
-        fputs("C Template library: out of memory\n", stderr);
+        fputs("C thetemplate library: out of memory\n", stderr);
         exit(1);
     }
     return ret;
 }
 
 /*
- * newtemplate() creates a new template struct and reads the template
+ * newtemplate() creates a new thetemplate struct and reads the thetemplate
  * file "filename" into memory.  If "tmplstr" is non-null then it is
- * the template, so we do not read "filename".
+ * the thetemplate, so we do not read "filename".
  */
 
-static template *
+char* readFile(const char *filename)
+{
+	char *buf = 0;
+	 FILE *fp;
+	 struct stat stb;
+	 size_t readSize;
+	if ((fp = fopen(filename, "r")) == 0)
+	{
+		fprintf(stdout,"open file failed \"%s\"\n", filename);
+		fclose(fp);
+		return 0;
+	}
+	if(fstat(fileno(fp), &stb) != 0)
+	{
+		fprintf(stdout,"fstat failed \"%s\"\n", filename);
+		fclose(fp);
+		return 0;
+	}
+	buf = (char *) mymalloc(stb.st_size + 1);
+	readSize = fread(buf, 1, stb.st_size, fp);
+	/*
+	if( readSize!= stb.st_size)
+	{
+		fprintf(stdout,"read failed \"%s\"\n", filename);
+		fclose(fp);
+		return 0;
+	}*/
+	buf[stb.st_size>readSize?readSize:stb.st_size] = 0;
+	fclose(fp);
+	return buf;
+}
+
+static thetemplate *
 newtemplate(const char *filename, const char *tmplstr,
     const TMPL_fmtlist *fmtlist, FILE *out, FILE *errout)
 {
-    template *t;
-    FILE *fp;
+    thetemplate *t;
     char *buf = 0;
-    struct stat stb;
 
     if (tmplstr == 0 && filename == 0) {
         if (errout != 0) {
-            fputs("C Template library: no template specified\n", errout);
+            fputs("C thetemplate library: no thetemplate specified\n", errout);
         }
         return 0;
     }
     if (tmplstr == 0) {
+	
+		/*
         if ((fp = fopen(filename, "r")) != 0 &&
             fstat(fileno(fp), &stb) == 0 &&
-            S_ISREG(stb.st_mode) != 0 &&
+            //S_ISREG(stb.st_mode) != 0 &&
             (buf = (char *) mymalloc(stb.st_size + 1)) != 0 &&
             (stb.st_size == 0 ||
-            fread(buf, 1, stb.st_size, fp) == stb.st_size))
-        {
-            fclose(fp);
-            buf[stb.st_size] = 0;
-        }
-        else {
+            fread(buf, 1, stb.st_size, fp) == stb.st_size))*/
+		if((buf=readFile(filename))==0)
+		{
             if (errout != 0) {
-                fprintf(errout, "C Template library: failed to read "
-                    "template from file \"%s\"\n", filename);
+                fprintf(errout, "C thetemplate library: failed to read "
+                    "thetemplate from file \"%s\"\n", filename);
             }
             if (buf != 0) {
                 free(buf);
             }
-            if (fp != 0) {
-                fclose(fp);
-            }
             return 0;
         }
     }
-    t = (template *) mymalloc(sizeof(*t));
+    t = (thetemplate *) mymalloc(sizeof(*t));
     t->filename = filename != 0 ? filename : "(none)";
     t->tmplstr = tmplstr != 0 ? tmplstr : buf;
     t->fmtlist = fmtlist;
@@ -281,7 +308,7 @@ newtemplate(const char *filename, const char *tmplstr,
 /* newtag() allocates a new tagnode */
 
 static tagnode *
-newtag(template *t, tag_kind kind) {
+newtag(thetemplate *t, tag_kind kind) {
     tagnode *ret;
 
     switch(kind) {
@@ -309,12 +336,12 @@ newtag(template *t, tag_kind kind) {
 /*
  * freetag() recursively frees parse tree tagnodes.  We do not free
  * the text in a tag_text tagnode because it points to memory where
- * the input template is stored, which we free elsewhere.
+ * the input thetemplate is stored, which we free elsewhere.
  */
 
 static void
 freetag(tagnode *tag) {
-    template *t;
+    thetemplate *t;
 
     if (tag == 0) {
         return;
@@ -393,7 +420,7 @@ tagname(tag_kind kind) {
  */
 
 static const char *
-scanspaces(template *t, const char *p) {
+scanspaces(thetemplate *t, const char *p) {
     while (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t') {
         if (*p++ == '\n') {
             t->linenum++;
@@ -409,7 +436,7 @@ scanspaces(template *t, const char *p) {
  */
 
 static int
-scancomment(template *t, const char *p) {
+scancomment(thetemplate *t, const char *p) {
     int linenum = t->linenum;
 
     if (p[0] != '<' || p[1] != '*') {
@@ -425,7 +452,7 @@ scancomment(template *t, const char *p) {
         }
     }
 
-    /* end of template, comment not terminated */
+    /* end of thetemplate, comment not terminated */
 
     if (t->errout != 0) {
         fprintf(t->errout, "\"<*\" in file \"%s\" line %d "
@@ -445,7 +472,7 @@ scancomment(template *t, const char *p) {
  */
 
 static char *
-scanattr(template *t, const char *attrname, const char *p) {
+scanattr(thetemplate *t, const char *attrname, const char *p) {
     int i = strlen(attrname);
     int quote = 0;
     char *ret;
@@ -505,13 +532,13 @@ findfmt(const TMPL_fmtlist *fmtlist, const char *name) {
 }
 
 /*
- * scantag() scans a template tag.  If successful we return a tagnode
+ * scantag() scans a thetemplate tag.  If successful we return a tagnode
  * for the tag and advance t->scanptr to the first character after the
  * tag.  Otherwise we clean up and return null.
  */
 
 static tagnode *
-scantag(template *t, const char *p) {
+scantag(thetemplate *t, const char *p) {
     tag_kind kind;
     int commentish = 0; /* true if tag enclosed by <!-- and --> */
     int hasname = 0;    /* true if tag has name= attribute */
@@ -545,7 +572,8 @@ scantag(template *t, const char *p) {
         hasname = 1;
         container = 1;
     }
-    else if (strncasecmp(p, "TMPL_ELSIF", len = 10) == 0) {
+    else if (strncasecmp(p, "TMPL_ELSIF", len = 10) == 0 || strncasecmp(p, "TMPL_ELSEIF", len = 11) == 0) {//yzk修改
+    //else if (strncasecmp(p, "TMPL_ELSIF", len = 10) == 0) {
         kind = tag_elsif;
         hasname = 1;
     }
@@ -572,7 +600,7 @@ scantag(template *t, const char *p) {
         kind = tag_cont;
     }
     else {
-        kind = 0;
+        kind = (tag_kind)0;
         goto failure;
     }
     t->scanptr = p + len;
@@ -748,8 +776,8 @@ failure:
 
 /*
  * scan() is the main scanner function.  We return the next text sequence
- * or template tag in t->curtag or we set it to null at the end of the
- * template.  We start scanning at t->scanptr and when we are done,
+ * or thetemplate tag in t->curtag or we set it to null at the end of the
+ * thetemplate.  We start scanning at t->scanptr and when we are done,
  * t->scanptr points to where the next call to scan() should
  * start scanning.  We scan text until we find a tag or comment.  If we
  * find a comment, then we return the text.  If we find a tag, then we
@@ -760,7 +788,7 @@ failure:
  */
 
 static void
-scan(template *t) {
+scan(thetemplate *t) {
     tagnode *tag = 0;
     const char *p;
     int i;
@@ -799,7 +827,7 @@ scan(template *t) {
     /*
      * At this point p is where we started scanning and p[i] is
      * the first character of the tag or comment that ended this
-     * scan or else p[i] is the null at the end of the template.
+     * scan or else p[i] is the null at the end of the thetemplate.
      */
 
     if (p[i] == 0) {
@@ -820,21 +848,21 @@ scan(template *t) {
  * forward declaration for recursive calls
  */
 
-static tagnode *parselist(template *t, int stop);
+static tagnode *parselist(thetemplate *t, int stop);
 
 /*
  * parseif() parses a TMPL_IF statement, which looks like this:
  *
  * <TMPL_IF name = "varname" value = "testvalue" >
- *    template-list
+ *    thetemplate-list
  * <TMPL_ELSIF name = "varname" value = "testvalue" >
- *    template-list
+ *    thetemplate-list
  * <TMPL_ELSE>
- *    template-list
+ *    thetemplate-list
  * </TMPL_IF>
  *
- * A template-list is any sequence (including an empty sequence)
- * of text, template tags, if statements or loop statements.  There
+ * A thetemplate-list is any sequence (including an empty sequence)
+ * of text, thetemplate tags, if statements or loop statements.  There
  * can be zero or more TMPL_ELSIF tags followed by zero or one
  * TMPL_ELSE tag.  There must be a final /TMPL_IF tag.
  *
@@ -845,7 +873,7 @@ static tagnode *parselist(template *t, int stop);
  */
 
 static void
-parseif(template *t, int stop) {
+parseif(thetemplate *t, int stop) {
     tagnode *iftag = t->curtag;
     int linenum = t->tagline;
     int mystop = stop | tag_else | tag_elsif | tag_endif;
@@ -875,7 +903,7 @@ parseif(template *t, int stop) {
  * parseloop() parses a TMPL_LOOP statement which looks like this:
  *
  * <TMPL_LOOP name = "loopname">
- *   template-list
+ *   thetemplate-list
  * </TMPL_LOOP>
  *
  * "looptag" is a TMPL_LOOP tagnode, which has a pointer for the
@@ -885,7 +913,7 @@ parseif(template *t, int stop) {
  */
 
 static void
-parseloop(template *t, int stop) {
+parseloop(thetemplate *t, int stop) {
     tagnode *looptag = t->curtag;
     int linenum = t->tagline;
 
@@ -907,21 +935,21 @@ parseloop(template *t, int stop) {
 
 /*
  * parselist() is the top level parser function.  It parses a
- * template-list which is any sequence of text, TMPL_VAR tags,
+ * thetemplate-list which is any sequence of text, TMPL_VAR tags,
  * TMPL_INCLUDE tags, if statements or loop statements.
  * We return a parse tree which is a linked list of tagnodes.  The
  * "stop" parameter is a bitmap of tag kinds that we expect to end
- * this list.  For example, if we are parsing the template-list
+ * this list.  For example, if we are parsing the thetemplate-list
  * following a TMPL_IF tag, then we expect the list to end with a
  * TMPL_ELSIF tag or TMPL_ELSE tag or /TMPL_IF tag.  If we are parsing the
- * template-list that comprises the entire template, then "stop" is zero
- * so that we keep going to the end of the template.  When we are done,
+ * thetemplate-list that comprises the entire thetemplate, then "stop" is zero
+ * so that we keep going to the end of the thetemplate.  When we are done,
  * t->curtag is the tag that caused us to stop, or null at the end of
- * the template.
+ * the thetemplate.
  */
 
 static tagnode *
-parselist(template *t, int stop) {
+parselist(thetemplate *t, int stop) {
     tagnode *list = 0, *tail, *tag;
 
     scan(t);
@@ -1104,7 +1132,7 @@ write_text(const char *p, int len, FILE *out) {
  * newfilename() returns a copy of an include file name with
  * possible modifications.  If the include file name begins
  * with ".../" then we replace "..." with the directory name
- * of the parent template file.  If there is no directory
+ * of the parent thetemplate file.  If there is no directory
  * name then we strip ".../".
  */
 
@@ -1112,7 +1140,7 @@ static const char *
 newfilename(const char *inclfile, const char *parentfile) {
     char *newfile, *cp;
 
-    newfile = mymalloc(strlen(parentfile) + strlen(inclfile));
+    newfile = (char*)mymalloc(strlen(parentfile) + strlen(inclfile));
     if (strncmp(inclfile, ".../", 4) != 0) {
         return strcpy(newfile, inclfile);
     }
@@ -1123,16 +1151,16 @@ newfilename(const char *inclfile, const char *parentfile) {
 }
 
 /*
- * walk() walks the template parse tree and outputs the result.  We
+ * walk() walks the thetemplate parse tree and outputs the result.  We
  * process the tree nodes according to the data in "varlist".
  */
 
 static void
-walk(template *t, tagnode *tag, const TMPL_varlist *varlist) {
+walk(thetemplate *t, tagnode *tag, const TMPL_varlist *varlist) {
     const char *value;
     TMPL_loop *loop;
     TMPL_varlist *vl;
-    template *t2;
+    thetemplate *t2;
     const char *newfile;
 
     /*
@@ -1447,9 +1475,9 @@ TMPL_free_fmtlist(TMPL_fmtlist *fmtlist) {
 }
 
 /*
- * TMPL_write() outputs a template to open file pointer "out" using
+ * TMPL_write() outputs a thetemplate to open file pointer "out" using
  * variable list "varlist".  If "tmplstr" is null, then we read the
- * template from "filename", otherwise "tmplstr" is the template.
+ * thetemplate from "filename", otherwise "tmplstr" is the thetemplate.
  * Parameter "fmtlist" is a format function list that contains
  * functions that TMPL_VAR tags can specify to output variables.
  * We return 0 on success otherwise -1.  We write errors to open
@@ -1462,8 +1490,12 @@ TMPL_write(const char *filename, const char *tmplstr,
     FILE *out, FILE *errout)
 {
     int ret;
-    template *t;
-
+    thetemplate *t;
+    if (access(filename,4) )
+    {
+        fprintf(errout,"模板文件%s不存在或者没有读取权限",filename);
+        return -1;
+    }
     if ((t = newtemplate(filename, tmplstr, fmtlist, out, errout)) == 0) {
         return -1;
     }
